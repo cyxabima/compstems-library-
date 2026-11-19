@@ -8,6 +8,7 @@ from dataclasses import replace
 from datetime import date, timedelta
 from pathlib import Path
 
+from dashboard import DashboardStats, stats, ui_dashboard, ui_reset
 from library.models import Book
 from library.repository import BookRepository
 from loans import (
@@ -705,6 +706,98 @@ class IssueBookScreenTests(LibraryTestCase):
         self.assertEqual(output[-1], "No members registered.")
 
 
+class DashboardTests(LibraryTestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.add_books(
+            make_book("B001", "Alpha", available_copies=2, total_copies=3),
+            make_book("B002", "Beta", available_copies=1, total_copies=2),
+        )
+        self.overdue_loan = self.service.issue_book(
+            "B001", "ada@example.com", issued_on=date(2026, 11, 1)
+        )
+        self.active_loan = self.service.issue_book(
+            "B002", "grace@example.com", issued_on=date(2026, 11, 19)
+        )
+
+    def test_stats_count_titles_members_loans_and_overdue(self) -> None:
+        counts = stats(self.service, as_of=date(2026, 11, 18))
+
+        self.assertEqual(
+            counts,
+            DashboardStats(
+                book_titles=2,
+                members=2,
+                active_loans=2,
+                overdue_loans=1,
+            ),
+        )
+
+    def test_ui_shows_counts_and_lists_overdue_loans(self) -> None:
+        output: list[str] = []
+
+        counts = ui_dashboard(
+            self.service,
+            as_of=date(2026, 11, 18),
+            print_fn=output.append,
+        )
+
+        text = "\n".join(output)
+        self.assertEqual(counts.overdue_loans, 1)
+        self.assertIn("Library dashboard", text)
+        self.assertIn("Book titles:   2", text)
+        self.assertIn("Members:       2", text)
+        self.assertIn("Books on loan: 2", text)
+        self.assertIn("Overdue loans: 1", text)
+        self.assertIn(self.overdue_loan.id, text)
+        self.assertNotIn(self.active_loan.id, text)
+        self.assertIn("OVERDUE", text)
+
+
+class ResetTests(LibraryTestCase):
+    def seed(self) -> None:
+        self.add_books(make_book())
+        self.service.issue_book(
+            "B001", "ada@example.com", issued_on=date(2026, 11, 19)
+        )
+
+    def test_declining_confirmation_keeps_all_data(self) -> None:
+        self.seed()
+        output: list[str] = []
+
+        cleared = ui_reset(
+            self.books,
+            self.loans,
+            self.member_store,
+            input_fn=lambda _prompt: "",
+            print_fn=output.append,
+        )
+
+        self.assertFalse(cleared)
+        self.assertEqual(output, ["Reset cancelled."])
+        self.assertEqual(len(self.books.load()), 1)
+        self.assertEqual(len(self.loans.load()), 1)
+        self.assertEqual(len(self.member_store.load()), 2)
+
+    def test_confirming_clears_all_data(self) -> None:
+        self.seed()
+        output: list[str] = []
+
+        cleared = ui_reset(
+            self.books,
+            self.loans,
+            self.member_store,
+            input_fn=lambda _prompt: "yes",
+            print_fn=output.append,
+        )
+
+        self.assertTrue(cleared)
+        self.assertEqual(output, ["Library data cleared."])
+        self.assertEqual(self.books.load(), [])
+        self.assertEqual(self.loans.load(), [])
+        self.assertEqual(self.member_store.load(), [])
+
+
 class LibraryCommandTests(LibraryTestCase):
     def run_command(
         self, *arguments: str, stdin: str = ""
@@ -817,6 +910,45 @@ class LibraryCommandTests(LibraryTestCase):
 
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("No overdue loans.", result.stdout)
+
+    def test_dashboard_command_shows_counts_and_overdue_list(self) -> None:
+        self.add_books(make_book())
+        self.service.issue_book(
+            "B001",
+            "ada@example.com",
+            issued_on=date.today() - timedelta(days=LOAN_PERIOD_DAYS + 2),
+        )
+
+        result = self.run_command("--dashboard")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Book titles:   1", result.stdout)
+        self.assertIn("Members:       2", result.stdout)
+        self.assertIn("Books on loan: 1", result.stdout)
+        self.assertIn("Overdue loans: 1", result.stdout)
+        self.assertIn("OVERDUE", result.stdout)
+
+    def test_reset_command_keeps_data_when_not_confirmed(self) -> None:
+        self.add_books(make_book())
+
+        result = self.run_command("--reset", stdin="n\n")
+
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("Reset cancelled.", result.stdout)
+        self.assertEqual(len(self.books.load()), 1)
+        self.assertEqual(len(self.member_store.load()), 2)
+
+    def test_reset_command_clears_data_when_confirmed(self) -> None:
+        self.add_books(make_book())
+        self.service.issue_book("B001", "ada@example.com")
+
+        result = self.run_command("--reset", stdin="y\n")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Library data cleared.", result.stdout)
+        self.assertEqual(self.books.load(), [])
+        self.assertEqual(self.loans.load(), [])
+        self.assertEqual(self.member_store.load(), [])
 
 
 if __name__ == "__main__":

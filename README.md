@@ -30,6 +30,8 @@ request.
   copy, and lists active loans by default.
 - **US-08 – Overdue loans and fines:** marks loans past their due date
   `OVERDUE`, charges Rs 10 per day late, and shows the fine on return.
+- **US-09 – Dashboard:** shows counts of book titles, members, active loans
+  and overdue loans, lists overdue loans, and resets data after confirmation.
 
 ## Project structure
 ```
@@ -40,6 +42,7 @@ library/service.py  Catalogue operations
 library/cli.py      Command-line book list and issue screen
 members.py          Member validation, registry and storage
 loans.py            Loan rules, fines, storage and loan screens
+dashboard.py        Library counts, dashboard and reset screens
 data/books.json     Sample book catalogue
 data/members.json   Sample registered members
 data/loans.json     Recorded loans
@@ -153,6 +156,39 @@ fine is shown with the return confirmation:
 ```
 Returned 'Alpha' (loan L001). Available copies: 1/2.
 Overdue by 3 day(s). Fine: Rs 30.
+```
+
+## Dashboard
+```bash
+python main.py --dashboard
+```
+
+The dashboard shows the key library counts and then lists every overdue loan:
+
+```
+Library dashboard
+  Book titles:   6
+  Members:       2
+  Books on loan: 1
+  Overdue loans: 1
+
+Overdue loans:
+Loan ID  Book   Member         Due         Days Late  Fine (Rs)  Status
+-------  -----  -------------  ----------  ---------  ---------  -------
+L001     Alpha  Ada Lovelace   2026-11-15  3          30         OVERDUE
+```
+
+## Resetting the library
+```bash
+python main.py --reset
+```
+
+The reset asks for confirmation first and only clears the catalogue, members
+and loans when the answer is `y` or `yes`:
+
+```
+Reset all library data? [y/N]: n
+Reset cancelled.
 ```
 
 ## Running the tests

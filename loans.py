@@ -589,7 +589,7 @@ def overdue_rows(
     ]
 
 
-def _format_loan_table(
+def format_loan_table(
     headers: Sequence[str],
     rows: Sequence[Sequence[str]],
 ) -> str:
@@ -632,7 +632,7 @@ def ui_list_loans(
         members=service.list_members(),
         include_returned=include_returned,
     )
-    print_fn(_format_loan_table(LOAN_HEADERS, rows))
+    print_fn(format_loan_table(LOAN_HEADERS, rows))
     return displayed
 
 
@@ -654,7 +654,7 @@ def ui_list_overdue(
         members=service.list_members(),
         as_of=as_of,
     )
-    print_fn(_format_loan_table(OVERDUE_HEADERS, rows))
+    print_fn(format_loan_table(OVERDUE_HEADERS, rows))
     return overdue
 
 
@@ -678,7 +678,7 @@ def ui_return_book(
         include_returned=True,
     )
     print_fn("Active loans:")
-    print_fn(_format_loan_table(LOAN_HEADERS, rows))
+    print_fn(format_loan_table(LOAN_HEADERS, rows))
 
     loan_id = input_fn("Loan ID: ").strip()
     try:
