@@ -1,8 +1,17 @@
 """Tests for member registration validation."""
 
+import json
+import tempfile
 import unittest
+from pathlib import Path
 
-from members import DuplicateEmailError, InvalidMemberError, Member, MemberRegistry
+from members import (
+    DuplicateEmailError,
+    InvalidMemberError,
+    Member,
+    MemberRegistry,
+    MemberRepository,
+)
 
 
 class MemberValidationTests(unittest.TestCase):
@@ -116,6 +125,52 @@ class MemberRegistryTests(unittest.TestCase):
         names = [member.name for member in registry.list_members()]
 
         self.assertEqual(names, ["ada", "Grace", "Zoe"])
+
+
+class MemberRepositoryTests(unittest.TestCase):
+    def setUp(self) -> None:
+        temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+        self.path = Path(temp_dir.name) / "members.json"
+
+    def test_missing_file_loads_as_an_empty_list(self) -> None:
+        self.assertEqual(MemberRepository(self.path).load(), [])
+
+    def test_saved_members_can_be_loaded_again(self) -> None:
+        repository = MemberRepository(self.path)
+        members = [
+            Member("Ada Lovelace", "ada@example.com"),
+            Member("Grace Hopper", "grace@example.com"),
+        ]
+
+        repository.save(members)
+
+        self.assertEqual(repository.load(), members)
+
+    def test_load_rejects_duplicate_emails(self) -> None:
+        self.path.write_text(
+            json.dumps(
+                [
+                    {"name": "Ada", "email": "ada@example.com"},
+                    {"name": "Another", "email": "ADA@example.com"},
+                ]
+            ),
+            encoding="utf-8",
+        )
+
+        with self.assertRaisesRegex(ValueError, "duplicates email"):
+            MemberRepository(self.path).load()
+
+    def test_save_rejects_duplicate_emails(self) -> None:
+        repository = MemberRepository(self.path)
+
+        with self.assertRaises(DuplicateEmailError):
+            repository.save(
+                [
+                    Member("Ada", "ada@example.com"),
+                    Member("Another", "ada@example.com"),
+                ]
+            )
 
 
 if __name__ == "__main__":
