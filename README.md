@@ -22,6 +22,8 @@ request.
 ## Features
 - **US-02 – List all books:** shows every book with its ID, title, author,
   ISBN, category and available/total copies, sorted by title.
+- **US-04 – Search books:** finds books by title, author, ISBN or category,
+  ignoring upper/lower case, and shows "No books found" when nothing matches.
 
 ## Project structure
 ```
@@ -29,7 +31,7 @@ main.py             Application entry point
 library/models.py   Book domain model
 library/repository.py JSON catalogue storage
 library/service.py  Catalogue operations
-library/cli.py      Command-line book list
+library/cli.py      Command-line book list and search
 data/books.json     Sample book catalogue
 tests/              Unit tests
 ```
@@ -55,6 +57,16 @@ B002  The Pragmatic Programmer    Andrew Hunt & David Thomas  9780201616224  Sof
 ```
 
 Use another catalogue file with `python main.py --data <path>`.
+
+### Searching books
+Search across title, author, ISBN and category. Matching ignores upper/lower
+case and results stay sorted by title:
+
+```bash
+python main.py --search "history"
+```
+
+If no book matches, the command prints `No books found`.
 
 ## Running the tests
 ```bash
