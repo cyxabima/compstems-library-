@@ -7,6 +7,16 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
+from loans import (
+    DEFAULT_LOANS_PATH,
+    LoanRepository,
+    LoanService,
+    ui_issue_book,
+    ui_list_loans,
+    ui_return_book,
+)
+from members import DEFAULT_MEMBERS_PATH, MemberRepository
+
 from .models import Book
 from .repository import DEFAULT_DATA_PATH, BookRepository
 from .service import BookService
@@ -56,12 +66,95 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="PATH",
         help="book catalogue JSON file (default: data/books.json)",
     )
+    parser.add_argument(
+        "--issue",
+        action="store_true",
+        help="open the issue-book screen",
+    )
+    parser.add_argument(
+        "--return",
+        dest="return_book",
+        action="store_true",
+        help="open the return-book screen",
+    )
+    parser.add_argument(
+        "--list-loans",
+        action="store_true",
+        help="list active loans",
+    )
+    parser.add_argument(
+        "--show-returned",
+        action="store_true",
+        help="include returned loans when listing loans",
+    )
+    parser.add_argument(
+        "--members",
+        type=Path,
+        default=DEFAULT_MEMBERS_PATH,
+        metavar="PATH",
+        help="member JSON file (default: data/members.json)",
+    )
+    parser.add_argument(
+        "--loans",
+        type=Path,
+        default=DEFAULT_LOANS_PATH,
+        metavar="PATH",
+        help="loan JSON file (default: data/loans.json)",
+    )
     return parser
+
+
+def _loan_service(args: argparse.Namespace) -> LoanService:
+    return LoanService(
+        BookRepository(args.data),
+        LoanRepository(args.loans),
+        MemberRepository(args.members),
+    )
+
+
+def _run_issue_screen(args: argparse.Namespace) -> int:
+    try:
+        loan = ui_issue_book(_loan_service(args))
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+
+    return 0 if loan is not None else 1
+
+
+def _run_return_screen(args: argparse.Namespace) -> int:
+    try:
+        loan = ui_return_book(_loan_service(args))
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+
+    return 0 if loan is not None else 1
+
+
+def _run_list_loans(args: argparse.Namespace) -> int:
+    try:
+        ui_list_loans(
+            _loan_service(args),
+            include_returned=args.show_returned,
+        )
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+
+    return 0
 
 
 def run(argv: Sequence[str] | None = None) -> int:
     """Run the command-line application and return its exit status."""
     args = build_parser().parse_args(argv)
+    if args.issue:
+        return _run_issue_screen(args)
+    if args.return_book:
+        return _run_return_screen(args)
+    if args.list_loans:
+        return _run_list_loans(args)
+
     service = BookService(BookRepository(args.data))
 
     try:

@@ -2,9 +2,14 @@
 
 from __future__ import annotations
 
+import json
 import re
 from collections.abc import Iterable
 from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+DEFAULT_MEMBERS_PATH = Path(__file__).resolve().parent / "data" / "members.json"
 
 _EMAIL_PATTERN = re.compile(
     r"[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+"
@@ -84,3 +89,81 @@ class MemberRegistry:
 
     def __len__(self) -> int:
         return len(self._members)
+
+
+class MemberRepository:
+    """Read and write the registered-member list as JSON."""
+
+    def __init__(self, path: str | Path = DEFAULT_MEMBERS_PATH) -> None:
+        self.path = Path(path)
+
+    def load(self) -> list[Member]:
+        """Return registered members, or an empty list if the file is missing."""
+        if not self.path.exists():
+            return []
+
+        try:
+            raw = self.path.read_text(encoding="utf-8")
+            payload: Any = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise ValueError(
+                f"Member file {self.path} is not valid JSON: {exc.msg}"
+            ) from exc
+        except OSError as exc:
+            raise ValueError(f"Could not read member file {self.path}: {exc}") from exc
+
+        if not isinstance(payload, list):
+            raise ValueError(f"Member file {self.path} must contain a JSON list")
+
+        members: list[Member] = []
+        seen_emails: set[str] = set()
+        for position, entry in enumerate(payload, start=1):
+            if not isinstance(entry, dict):
+                raise ValueError(
+                    f"Member entry {position} in {self.path} must be a JSON object"
+                )
+            try:
+                member = Member(**entry)
+            except TypeError as exc:
+                raise ValueError(
+                    f"Member entry {position} in {self.path} does not match "
+                    f"the member schema: {exc}"
+                ) from exc
+            except ValueError as exc:
+                raise ValueError(
+                    f"Member entry {position} in {self.path} is invalid: {exc}"
+                ) from exc
+
+            if member.email in seen_emails:
+                raise ValueError(
+                    f"Member entry {position} in {self.path} duplicates "
+                    f"email {member.email}"
+                )
+            seen_emails.add(member.email)
+            members.append(member)
+
+        return members
+
+    def save(self, members: Iterable[Member]) -> None:
+        """Write members to disk, rejecting duplicate email addresses."""
+        payload: list[dict[str, str]] = []
+        seen_emails: set[str] = set()
+        for member in members:
+            if member.email in seen_emails:
+                raise DuplicateEmailError(
+                    f"A member with email {member.email} is already registered"
+                )
+            seen_emails.add(member.email)
+            payload.append({"name": member.name, "email": member.email})
+
+        temporary = self.path.with_name(f".{self.path.name}.tmp")
+        try:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            temporary.write_text(
+                json.dumps(payload, indent=2) + "\n",
+                encoding="utf-8",
+            )
+            temporary.replace(self.path)
+        except OSError as exc:
+            temporary.unlink(missing_ok=True)
+            raise ValueError(f"Could not save member file {self.path}: {exc}") from exc
