@@ -8,6 +8,14 @@ from dataclasses import replace
 from datetime import date, timedelta
 from pathlib import Path
 
+from books import (
+    BookValidationError,
+    DuplicateISBNError,
+    add_book,
+    clean_isbn,
+    ui_add_book,
+    validate_book,
+)
 from dashboard import DashboardStats, stats, ui_dashboard, ui_reset
 from library.models import Book
 from library.repository import BookRepository
@@ -798,6 +806,203 @@ class ResetTests(LibraryTestCase):
         self.assertEqual(self.member_store.load(), [])
 
 
+class CleanISBNTests(unittest.TestCase):
+    def test_removes_spaces_and_hyphens(self) -> None:
+        self.assertEqual(clean_isbn(" 978-0-13-235088-4 "), "9780132350884")
+
+    def test_keeps_a_ten_digit_isbn(self) -> None:
+        self.assertEqual(clean_isbn("0-306-40615-2"), "0306406152")
+
+    def test_rejects_non_text_input(self) -> None:
+        with self.assertRaisesRegex(BookValidationError, "must be text"):
+            clean_isbn(9780132350884)  # type: ignore[arg-type]
+
+
+class ValidateBookTests(unittest.TestCase):
+    def test_accepts_a_valid_thirteen_digit_book(self) -> None:
+        self.assertEqual(
+            validate_book(
+                "  Clean Code  ",
+                " Robert C. Martin ",
+                "978-0-13-235088-4",
+                "",
+                "3",
+            ),
+            (
+                "Clean Code",
+                "Robert C. Martin",
+                "9780132350884",
+                "General",
+                3,
+            ),
+        )
+
+    def test_accepts_a_ten_digit_isbn(self) -> None:
+        _, _, isbn, _, copies = validate_book(
+            "Clean Code",
+            "Robert C. Martin",
+            "0-306-40615-2",
+            "Software Engineering",
+            1,
+        )
+
+        self.assertEqual(isbn, "0306406152")
+        self.assertEqual(copies, 1)
+
+    def test_requires_a_title(self) -> None:
+        with self.assertRaisesRegex(BookValidationError, "Title is required"):
+            validate_book("   ", "An Author", "9780132350884", "General", 1)
+
+    def test_requires_an_author(self) -> None:
+        with self.assertRaisesRegex(BookValidationError, "Author is required"):
+            validate_book("A Title", "", "9780132350884", "General", 1)
+
+    def test_rejects_isbns_that_are_not_ten_or_thirteen_digits(self) -> None:
+        for isbn in (
+            "",
+            "123456789",
+            "123456789012",
+            "12345678901a",
+            "978-0-13-235088",
+        ):
+            with self.subTest(isbn=isbn):
+                with self.assertRaisesRegex(
+                    BookValidationError, "10 or 13 digits"
+                ):
+                    validate_book("A Title", "An Author", isbn, "General", 1)
+
+    def test_copies_must_be_at_least_one(self) -> None:
+        for copies in (0, -1, "0", "many"):
+            with self.subTest(copies=copies):
+                with self.assertRaisesRegex(
+                    BookValidationError, "Copies must be"
+                ):
+                    validate_book(
+                        "A Title", "An Author", "9780132350884", "General", copies
+                    )
+
+    def test_rejects_a_duplicate_isbn(self) -> None:
+        existing = make_book()
+        existing = replace(existing, isbn="9780132350884")
+
+        with self.assertRaisesRegex(DuplicateISBNError, "already in the catalogue"):
+            validate_book(
+                "Another Book",
+                "Another Author",
+                "978-0-13-235088-4",
+                "General",
+                1,
+                existing_books=[existing],
+            )
+
+
+class AddBookTests(LibraryTestCase):
+    def test_adds_a_valid_book_to_storage(self) -> None:
+        book = add_book(
+            "Clean Code",
+            "Robert C. Martin",
+            "978-0-13-235088-4",
+            "Software Engineering",
+            3,
+            books=self.books,
+        )
+
+        self.assertEqual(book.id, "B001")
+        self.assertEqual(book.isbn, "9780132350884")
+        self.assertEqual(book.total_copies, 3)
+        self.assertEqual(book.available_copies, 3)
+        self.assertEqual(self.books.load(), [book])
+
+    def test_assigns_the_next_book_id(self) -> None:
+        self.add_books(
+            make_book("B001"),
+            make_book("B006", "Beta"),
+        )
+
+        book = add_book(
+            "Gamma",
+            "An Author",
+            "9780132350884",
+            "General",
+            2,
+            books=self.books,
+        )
+
+        self.assertEqual(book.id, "B007")
+        self.assertEqual(len(self.books.load()), 3)
+
+    def test_rejects_an_invalid_book_without_saving(self) -> None:
+        with self.assertRaises(BookValidationError):
+            add_book(
+                "Clean Code",
+                "Robert C. Martin",
+                "12345",
+                "General",
+                1,
+                books=self.books,
+            )
+
+        self.assertEqual(self.books.load(), [])
+
+    def test_rejects_a_duplicate_isbn_without_saving(self) -> None:
+        self.add_books(make_book("B001"))
+
+        with self.assertRaises(DuplicateISBNError):
+            add_book(
+                "Clean Code",
+                "Robert C. Martin",
+                "9780000000000",
+                "General",
+                1,
+                books=self.books,
+            )
+
+        self.assertEqual(len(self.books.load()), 1)
+
+
+class AddBookScreenTests(LibraryTestCase):
+    def test_prompts_for_each_field_and_reports_success(self) -> None:
+        answers = iter(
+            [
+                "Clean Code",
+                "Robert C. Martin",
+                "978-0-13-235088-4",
+                "Software Engineering",
+                "2",
+            ]
+        )
+        output: list[str] = []
+
+        book = ui_add_book(
+            self.books,
+            input_fn=lambda _prompt: next(answers),
+            print_fn=output.append,
+        )
+
+        self.assertIsNotNone(book)
+        self.assertEqual(
+            output[-1],
+            "Added 'Clean Code' (B001) with 2 copies.",
+        )
+        self.assertEqual(self.books.load()[0].isbn, "9780132350884")
+
+    def test_reports_validation_errors(self) -> None:
+        answers = iter(
+            ["Clean Code", "Robert C. Martin", "not-an-isbn", "", "1"]
+        )
+        output: list[str] = []
+
+        book = ui_add_book(
+            self.books,
+            input_fn=lambda _prompt: next(answers),
+            print_fn=output.append,
+        )
+
+        self.assertIsNone(book)
+        self.assertEqual(output[-1], "Error: ISBN must be 10 or 13 digits")
+        self.assertEqual(self.books.load(), [])
+
+
 class LibraryCommandTests(LibraryTestCase):
     def run_command(
         self, *arguments: str, stdin: str = ""
@@ -949,6 +1154,41 @@ class LibraryCommandTests(LibraryTestCase):
         self.assertEqual(self.books.load(), [])
         self.assertEqual(self.loans.load(), [])
         self.assertEqual(self.member_store.load(), [])
+
+    def test_add_book_command_persists_a_valid_book(self) -> None:
+        stdin = "\n".join(
+            [
+                "Clean Code",
+                "Robert C. Martin",
+                "978-0-13-235088-4",
+                "Software Engineering",
+                "2",
+                "",
+            ]
+        )
+
+        result = self.run_command("--add-book", stdin=stdin)
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(
+            "Added 'Clean Code' (B001) with 2 copies.",
+            result.stdout,
+        )
+        stored = self.books.load()
+        self.assertEqual(len(stored), 1)
+        self.assertEqual(stored[0].isbn, "9780132350884")
+        self.assertEqual(stored[0].available_copies, 2)
+
+    def test_add_book_command_reports_an_invalid_isbn(self) -> None:
+        stdin = "\n".join(
+            ["Clean Code", "Robert C. Martin", "12345", "General", "1", ""]
+        )
+
+        result = self.run_command("--add-book", stdin=stdin)
+
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("Error: ISBN must be 10 or 13 digits", result.stdout)
+        self.assertEqual(self.books.load(), [])
 
 
 if __name__ == "__main__":
