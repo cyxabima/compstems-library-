@@ -11,9 +11,11 @@ from pathlib import Path
 from library.models import Book
 from library.repository import BookRepository
 from loans import (
+    FINE_PER_DAY,
     LOAN_HEADERS,
     LOAN_PERIOD_DAYS,
     MAX_ACTIVE_LOANS,
+    OVERDUE_HEADERS,
     BookNotFoundError,
     BookUnavailableError,
     Loan,
@@ -26,9 +28,11 @@ from loans import (
     MemberNotFoundError,
     issue_book,
     loan_rows,
+    overdue_rows,
     return_book,
     ui_issue_book,
     ui_list_loans,
+    ui_list_overdue,
     ui_return_book,
 )
 from members import Member, MemberRepository
@@ -393,6 +397,169 @@ class LoanListTests(LibraryTestCase):
         self.assertIn("2026-11-20", text)
 
 
+class OverdueLoanTests(LibraryTestCase):
+    def make_loan(self, *, returned_on: date | None = None) -> Loan:
+        due_on = date(2026, 12, 3)
+        return Loan(
+            id="L001",
+            book_id="B001",
+            member_email="ada@example.com",
+            issued_on=due_on - timedelta(days=LOAN_PERIOD_DAYS),
+            due_on=due_on,
+            returned_on=returned_on,
+        )
+
+    def test_days_late_is_zero_on_or_before_the_due_date(self) -> None:
+        loan = self.make_loan()
+
+        self.assertEqual(loan.days_late(date(2026, 12, 2)), 0)
+        self.assertEqual(loan.days_late(date(2026, 12, 3)), 0)
+        self.assertFalse(loan.is_overdue(date(2026, 12, 3)))
+
+    def test_days_late_counts_days_after_the_due_date(self) -> None:
+        loan = self.make_loan()
+
+        self.assertEqual(loan.days_late(date(2026, 12, 6)), 3)
+        self.assertTrue(loan.is_overdue(date(2026, 12, 6)))
+
+    def test_fine_is_ten_rupees_per_day_late(self) -> None:
+        loan = self.make_loan()
+
+        self.assertEqual(FINE_PER_DAY, 10)
+        self.assertEqual(loan.fine_for(date(2026, 12, 3)), 0)
+        self.assertEqual(loan.fine_for(date(2026, 12, 6)), 30)
+
+    def test_returned_loan_is_measured_at_its_return_date(self) -> None:
+        loan = self.make_loan(returned_on=date(2026, 12, 8))
+
+        self.assertEqual(loan.days_late(), 5)
+        self.assertEqual(loan.fine_for(), 50)
+        self.assertFalse(loan.is_overdue())
+
+    def test_service_lists_only_active_overdue_loans(self) -> None:
+        self.add_books(
+            make_book("B001", "Alpha", available_copies=2, total_copies=3),
+            make_book("B002", "Beta", available_copies=1, total_copies=2),
+        )
+        overdue = self.service.issue_book(
+            "B001", "ada@example.com", issued_on=date(2026, 11, 1)
+        )
+        self.service.issue_book(
+            "B002", "grace@example.com", issued_on=date(2026, 11, 19)
+        )
+
+        overdue_loans = self.service.list_overdue(as_of=date(2026, 11, 18))
+
+        self.assertEqual([loan.id for loan in overdue_loans], [overdue.id])
+        self.assertEqual(overdue_loans[0].days_late(date(2026, 11, 18)), 3)
+
+
+class OverdueScreenTests(LibraryTestCase):
+    def test_rows_mark_loans_overdue_with_days_late_and_fine(self) -> None:
+        self.add_books(make_book(available_copies=1, total_copies=2))
+        loan = self.service.issue_book(
+            "B001", "ada@example.com", issued_on=date(2026, 11, 1)
+        )
+
+        rows = overdue_rows(
+            self.loans.load(),
+            books=self.books.load(),
+            members=self.member_store.load(),
+            as_of=date(2026, 11, 18),
+        )
+
+        self.assertEqual(
+            rows,
+            [
+                (
+                    loan.id,
+                    "Alpha",
+                    "Ada Lovelace",
+                    "2026-11-15",
+                    "3",
+                    "30",
+                    "OVERDUE",
+                )
+            ],
+        )
+
+    def test_overdue_headers_describe_days_late_and_fine(self) -> None:
+        self.assertIn("Days Late", OVERDUE_HEADERS)
+        self.assertIn("Fine (Rs)", OVERDUE_HEADERS)
+        self.assertIn("Status", OVERDUE_HEADERS)
+
+    def test_ui_lists_overdue_loans_marked_overdue(self) -> None:
+        self.add_books(make_book(available_copies=1, total_copies=2))
+        loan = self.service.issue_book(
+            "B001", "ada@example.com", issued_on=date(2026, 11, 1)
+        )
+        output: list[str] = []
+
+        displayed = ui_list_overdue(
+            self.service,
+            as_of=date(2026, 11, 18),
+            print_fn=output.append,
+        )
+
+        text = "\n".join(output)
+        self.assertEqual([item.id for item in displayed], [loan.id])
+        self.assertIn("OVERDUE", text)
+        self.assertIn("Days Late", text)
+        self.assertIn("Fine (Rs)", text)
+        self.assertIn("30", text)
+
+    def test_ui_reports_when_no_loans_are_overdue(self) -> None:
+        output: list[str] = []
+
+        displayed = ui_list_overdue(
+            self.service,
+            as_of=date(2026, 11, 18),
+            print_fn=output.append,
+        )
+
+        self.assertEqual(displayed, [])
+        self.assertEqual(output, ["No overdue loans."])
+
+
+class LateReturnFineTests(LibraryTestCase):
+    def test_shows_the_fine_when_an_overdue_book_is_returned(self) -> None:
+        self.add_books(make_book(available_copies=1, total_copies=2))
+        loan = self.service.issue_book(
+            "B001", "ada@example.com", issued_on=date(2026, 11, 19)
+        )
+        output: list[str] = []
+
+        returned = ui_return_book(
+            self.service,
+            input_fn=lambda _prompt: loan.id,
+            print_fn=output.append,
+            returned_on=date(2026, 12, 6),
+        )
+
+        self.assertIsNotNone(returned)
+        self.assertEqual(returned.days_late(), 3)
+        self.assertEqual(returned.fine_for(), 30)
+        self.assertIn("Overdue by 3 day(s). Fine: Rs 30.", output)
+
+    def test_has_no_fine_when_returned_by_the_due_date(self) -> None:
+        self.add_books(make_book(available_copies=1, total_copies=2))
+        loan = self.service.issue_book(
+            "B001", "ada@example.com", issued_on=date(2026, 11, 19)
+        )
+        output: list[str] = []
+
+        returned = ui_return_book(
+            self.service,
+            input_fn=lambda _prompt: loan.id,
+            print_fn=output.append,
+            returned_on=date(2026, 11, 30),
+        )
+
+        self.assertIsNotNone(returned)
+        self.assertEqual(returned.fine_for(), 0)
+        self.assertFalse(any("Fine" in line for line in output))
+
+
 class ReturnBookScreenTests(LibraryTestCase):
     def test_accepts_a_loan_id_and_returns_the_book(self) -> None:
         self.add_books(make_book(available_copies=1, total_copies=2))
@@ -626,6 +793,30 @@ class LibraryCommandTests(LibraryTestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn(loan.id, result.stdout)
         self.assertIn("Returned", result.stdout)
+
+    def test_overdue_command_lists_overdue_loans_with_fines(self) -> None:
+        self.add_books(make_book(available_copies=1, total_copies=2))
+        loan = self.service.issue_book(
+            "B001",
+            "ada@example.com",
+            issued_on=date.today() - timedelta(days=LOAN_PERIOD_DAYS + 4),
+        )
+
+        result = self.run_command("--overdue")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(loan.id, result.stdout)
+        self.assertIn("OVERDUE", result.stdout)
+        self.assertIn("40", result.stdout)
+
+    def test_overdue_command_reports_when_nothing_is_overdue(self) -> None:
+        self.add_books(make_book(available_copies=1, total_copies=2))
+        self.service.issue_book("B001", "ada@example.com")
+
+        result = self.run_command("--overdue")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("No overdue loans.", result.stdout)
 
 
 if __name__ == "__main__":

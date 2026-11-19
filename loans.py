@@ -15,8 +15,18 @@ from members import Member, MemberRepository, normalize_email
 
 LOAN_PERIOD_DAYS = 14
 MAX_ACTIVE_LOANS = 3
+FINE_PER_DAY = 10  # Rupees charged for each day a loan is overdue.
 DEFAULT_LOANS_PATH = Path(__file__).resolve().parent / "data" / "loans.json"
 LOAN_HEADERS = ("Loan ID", "Book", "Member", "Issued", "Due", "Returned")
+OVERDUE_HEADERS = (
+    "Loan ID",
+    "Book",
+    "Member",
+    "Due",
+    "Days Late",
+    "Fine (Rs)",
+    "Status",
+)
 
 
 class LoanError(ValueError):
@@ -86,6 +96,25 @@ class Loan:
     def is_active(self) -> bool:
         """Return True while the loan has not been returned."""
         return self.returned_on is None
+
+    def days_late(self, as_of: date | None = None) -> int:
+        """Return whole days past the due date, or zero when not late.
+
+        Returned loans are measured at the return date; active loans are
+        measured at ``as_of`` (today by default).
+        """
+        reference = self.returned_on or as_of or date.today()
+        if not isinstance(reference, date):
+            raise ValueError("as_of must be a date")
+        return max((reference - self.due_on).days, 0)
+
+    def fine_for(self, as_of: date | None = None) -> int:
+        """Return the overdue fine in rupees at ``as_of``."""
+        return self.days_late(as_of) * FINE_PER_DAY
+
+    def is_overdue(self, as_of: date | None = None) -> bool:
+        """Return True when an active loan is past its due date."""
+        return self.is_active and self.days_late(as_of) > 0
 
 
 class LoanRepository:
@@ -250,6 +279,13 @@ class LoanService:
         if not include_returned:
             loans = [loan for loan in loans if loan.is_active]
         return sorted(loans, key=lambda loan: loan.id)
+
+    def list_overdue(self, *, as_of: date | None = None) -> list[Loan]:
+        """Return active loans past their due date, oldest due date first."""
+        loans = [
+            loan for loan in self._loans.load() if loan.is_overdue(as_of)
+        ]
+        return sorted(loans, key=lambda loan: (loan.due_on, loan.id))
 
     def list_members(self) -> list[Member]:
         """Return registered members sorted by name."""
@@ -526,6 +562,33 @@ def loan_rows(
     ]
 
 
+def overdue_rows(
+    loans: Sequence[Loan],
+    *,
+    books: Sequence[Book] | None = None,
+    members: Sequence[Member] | None = None,
+    as_of: date | None = None,
+) -> list[tuple[str, ...]]:
+    """Build rows for overdue loans marked OVERDUE with days late and fine."""
+    titles = {book.id.casefold(): book.title for book in books or ()}
+    names = {member.email: member.name for member in members or ()}
+    selected = [loan for loan in loans if loan.is_overdue(as_of)]
+    selected.sort(key=lambda loan: (loan.due_on, loan.id))
+
+    return [
+        (
+            loan.id,
+            titles.get(loan.book_id.casefold(), loan.book_id),
+            names.get(loan.member_email, loan.member_email),
+            loan.due_on.isoformat(),
+            str(loan.days_late(as_of)),
+            str(loan.fine_for(as_of)),
+            "OVERDUE",
+        )
+        for loan in selected
+    ]
+
+
 def _format_loan_table(
     headers: Sequence[str],
     rows: Sequence[Sequence[str]],
@@ -573,6 +636,28 @@ def ui_list_loans(
     return displayed
 
 
+def ui_list_overdue(
+    service: LoanService,
+    *,
+    as_of: date | None = None,
+    print_fn: Callable[[str], None] = print,
+) -> list[Loan]:
+    """Print loans marked OVERDUE with their days late and fine."""
+    overdue = service.list_overdue(as_of=as_of)
+    if not overdue:
+        print_fn("No overdue loans.")
+        return []
+
+    rows = overdue_rows(
+        overdue,
+        books=service.list_books(),
+        members=service.list_members(),
+        as_of=as_of,
+    )
+    print_fn(_format_loan_table(OVERDUE_HEADERS, rows))
+    return overdue
+
+
 def ui_return_book(
     service: LoanService,
     *,
@@ -618,4 +703,10 @@ def ui_return_book(
         )
     else:
         print_fn(f"Returned loan {loan.id}.")
+
+    days_late = loan.days_late()
+    if days_late > 0:
+        print_fn(
+            f"Overdue by {days_late} day(s). Fine: Rs {loan.fine_for()}."
+        )
     return loan

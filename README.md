@@ -28,6 +28,8 @@ request.
   date, limits members to three active loans, and decrements availability.
 - **US-07 – Return a book:** returns a loan by ID, restores one available
   copy, and lists active loans by default.
+- **US-08 – Overdue loans and fines:** marks loans past their due date
+  `OVERDUE`, charges Rs 10 per day late, and shows the fine on return.
 
 ## Project structure
 ```
@@ -37,7 +39,7 @@ library/repository.py JSON catalogue storage
 library/service.py  Catalogue operations
 library/cli.py      Command-line book list and issue screen
 members.py          Member validation, registry and storage
-loans.py            Loan rules, storage and issue-book screen
+loans.py            Loan rules, fines, storage and loan screens
 data/books.json     Sample book catalogue
 data/members.json   Sample registered members
 data/loans.json     Recorded loans
@@ -130,6 +132,28 @@ python main.py --list-loans --show-returned
 
 Only active loans are shown by default. Add `--show-returned` to include
 returned loans.
+
+## Overdue loans and fines
+```bash
+python main.py --overdue
+```
+
+An active loan is overdue once the due date has passed. The screen marks each
+loan `OVERDUE` and shows the days late and the fine:
+
+```
+Loan ID  Book   Member         Due         Days Late  Fine (Rs)  Status
+-------  -----  -------------  ----------  ---------  ---------  -------
+L001     Alpha  Ada Lovelace   2026-11-15  3          30         OVERDUE
+```
+
+The fine is Rs 10 for each day late. When an overdue book is returned, the
+fine is shown with the return confirmation:
+
+```
+Returned 'Alpha' (loan L001). Available copies: 1/2.
+Overdue by 3 day(s). Fine: Rs 30.
+```
 
 ## Running the tests
 ```bash
