@@ -22,6 +22,8 @@ request.
 ## Features
 - **US-02 – List all books:** shows every book with its ID, title, author,
   ISBN, category and available/total copies, sorted by title.
+- **US-05 – Member registration validation:** requires a name and a valid
+  email, and rejects email addresses that are already registered.
 
 ## Project structure
 ```
@@ -30,6 +32,7 @@ library/models.py   Book domain model
 library/repository.py JSON catalogue storage
 library/service.py  Catalogue operations
 library/cli.py      Command-line book list
+members.py          Member validation and registry
 data/books.json     Sample book catalogue
 tests/              Unit tests
 ```
@@ -55,6 +58,20 @@ B002  The Pragmatic Programmer    Andrew Hunt & David Thomas  9780201616224  Sof
 ```
 
 Use another catalogue file with `python main.py --data <path>`.
+
+## Registering members
+Member details are validated when a `Member` is created or registered:
+
+```python
+from members import MemberRegistry
+
+members = MemberRegistry()
+members.register("Ada Lovelace", "ada@example.com")
+```
+
+A blank name, missing/invalid email, or an email that is already registered
+raises a `ValueError` subclass (`InvalidMemberError` or `DuplicateEmailError`).
+Email comparison is case-insensitive.
 
 ## Running the tests
 ```bash
