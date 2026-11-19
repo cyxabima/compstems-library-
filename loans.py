@@ -16,6 +16,7 @@ from members import Member, MemberRepository, normalize_email
 LOAN_PERIOD_DAYS = 14
 MAX_ACTIVE_LOANS = 3
 DEFAULT_LOANS_PATH = Path(__file__).resolve().parent / "data" / "loans.json"
+LOAN_HEADERS = ("Loan ID", "Book", "Member", "Issued", "Due", "Returned")
 
 
 class LoanError(ValueError):
@@ -36,6 +37,14 @@ class MemberNotFoundError(LoanError):
 
 class LoanLimitError(LoanError):
     """Raised when a member already has the maximum active loans."""
+
+
+class LoanNotFoundError(LoanError):
+    """Raised when a loan ID is not recorded."""
+
+
+class LoanAlreadyReturnedError(LoanError):
+    """Raised when a loan has already been returned."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -218,21 +227,34 @@ class LoanService:
         self,
         books: BookRepository,
         loans: LoanRepository,
-        members: MemberRepository,
+        members: MemberRepository | None = None,
     ) -> None:
         self._books = books
         self._loans = loans
         self._members = members
 
-    def list_available_books(self) -> list[Book]:
-        """Return lendable books sorted by title."""
+    def list_books(self) -> list[Book]:
+        """Return every catalogue book sorted by title."""
         return sorted(
-            (book for book in self._books.load() if book.is_available),
+            self._books.load(),
             key=lambda book: (book.title.casefold(), book.id),
         )
 
+    def list_available_books(self) -> list[Book]:
+        """Return lendable books sorted by title."""
+        return [book for book in self.list_books() if book.is_available]
+
+    def list_loans(self, *, include_returned: bool = False) -> list[Loan]:
+        """Return active loans, or all loans when returned ones are requested."""
+        loans = self._loans.load()
+        if not include_returned:
+            loans = [loan for loan in loans if loan.is_active]
+        return sorted(loans, key=lambda loan: loan.id)
+
     def list_members(self) -> list[Member]:
         """Return registered members sorted by name."""
+        if self._members is None:
+            return []
         return sorted(
             self._members.load(),
             key=lambda member: (member.name.casefold(), member.email),
@@ -255,6 +277,9 @@ class LoanService:
         issued_on: date | None = None,
     ) -> Loan:
         """Issue one available copy and record a 14-day loan."""
+        if self._members is None:
+            raise LoanError("Member data is required to issue a book")
+
         email = normalize_email(member_email)
         member = next(
             (member for member in self._members.load() if member.email == email),
@@ -316,6 +341,72 @@ class LoanService:
 
         return loan
 
+    def return_book(
+        self,
+        loan_id: str,
+        *,
+        returned_on: date | None = None,
+    ) -> Loan:
+        """Return an active loan and make its copy available again."""
+        if not isinstance(loan_id, str) or not loan_id.strip():
+            raise LoanNotFoundError(f"Loan {loan_id!r} was not found")
+
+        loans = self._loans.load()
+        loan_index = next(
+            (
+                index
+                for index, loan in enumerate(loans)
+                if loan.id.casefold() == loan_id.strip().casefold()
+            ),
+            None,
+        )
+        if loan_index is None:
+            raise LoanNotFoundError(f"Loan {loan_id!r} was not found")
+
+        loan = loans[loan_index]
+        if not loan.is_active:
+            raise LoanAlreadyReturnedError(
+                f"Loan {loan.id} was already returned"
+            )
+
+        return_date = returned_on or date.today()
+        if return_date < loan.issued_on:
+            raise LoanError("Return date cannot be before the issue date")
+
+        books = self._books.load()
+        book_index = next(
+            (
+                index
+                for index, book in enumerate(books)
+                if book.id.casefold() == loan.book_id.casefold()
+            ),
+            None,
+        )
+        if book_index is None:
+            raise BookNotFoundError(f"Book {loan.book_id!r} was not found")
+
+        book = books[book_index]
+        if book.available_copies >= book.total_copies:
+            raise LoanError(f"'{book.title}' already has all copies available")
+
+        updated_loan = replace(loan, returned_on=return_date)
+        updated_books = list(books)
+        updated_books[book_index] = replace(
+            book,
+            available_copies=book.available_copies + 1,
+        )
+        updated_loans = list(loans)
+        updated_loans[loan_index] = updated_loan
+
+        self._books.save(updated_books)
+        try:
+            self._loans.save(updated_loans)
+        except Exception:
+            self._books.save(books)
+            raise
+
+        return updated_loan
+
 
 def issue_book(
     book_id: str,
@@ -331,6 +422,20 @@ def issue_book(
         book_id,
         member_email,
         issued_on=issued_on,
+    )
+
+
+def return_book(
+    loan_id: str,
+    *,
+    books: BookRepository,
+    loans: LoanRepository,
+    returned_on: date | None = None,
+) -> Loan:
+    """Convenience wrapper around :meth:`LoanService.return_book`."""
+    return LoanService(books, loans).return_book(
+        loan_id,
+        returned_on=returned_on,
     )
 
 
@@ -392,4 +497,125 @@ def ui_issue_book(
     print_fn(
         f"Issued '{title}' to {member.name}. Due {loan.due_on.isoformat()}."
     )
+    return loan
+
+
+def loan_rows(
+    loans: Sequence[Loan],
+    *,
+    books: Sequence[Book] | None = None,
+    members: Sequence[Member] | None = None,
+    include_returned: bool = False,
+) -> list[tuple[str, ...]]:
+    """Build loan table rows, filtering out returned loans by default."""
+    titles = {book.id.casefold(): book.title for book in books or ()}
+    names = {member.email: member.name for member in members or ()}
+    selected = [loan for loan in loans if include_returned or loan.is_active]
+    selected.sort(key=lambda loan: loan.id)
+
+    return [
+        (
+            loan.id,
+            titles.get(loan.book_id.casefold(), loan.book_id),
+            names.get(loan.member_email, loan.member_email),
+            loan.issued_on.isoformat(),
+            loan.due_on.isoformat(),
+            loan.returned_on.isoformat() if loan.returned_on else "-",
+        )
+        for loan in selected
+    ]
+
+
+def _format_loan_table(
+    headers: Sequence[str],
+    rows: Sequence[Sequence[str]],
+) -> str:
+    widths = [len(header) for header in headers]
+    for row in rows:
+        for index, value in enumerate(row):
+            widths[index] = max(widths[index], len(value))
+
+    lines = [
+        "  ".join(
+            header.ljust(widths[index])
+            for index, header in enumerate(headers)
+        ).rstrip(),
+        "  ".join("-" * width for width in widths),
+    ]
+    lines.extend(
+        "  ".join(
+            value.ljust(widths[index]) for index, value in enumerate(row)
+        ).rstrip()
+        for row in rows
+    )
+    return "\n".join(lines)
+
+
+def ui_list_loans(
+    service: LoanService,
+    *,
+    include_returned: bool = False,
+    print_fn: Callable[[str], None] = print,
+) -> list[Loan]:
+    """Print active loans, optionally including returned loans."""
+    displayed = service.list_loans(include_returned=include_returned)
+    if not displayed:
+        print_fn("No loans found." if include_returned else "No active loans.")
+        return []
+
+    rows = loan_rows(
+        service.list_loans(include_returned=True),
+        books=service.list_books(),
+        members=service.list_members(),
+        include_returned=include_returned,
+    )
+    print_fn(_format_loan_table(LOAN_HEADERS, rows))
+    return displayed
+
+
+def ui_return_book(
+    service: LoanService,
+    *,
+    input_fn: Callable[[str], str] = input,
+    print_fn: Callable[[str], None] = print,
+    returned_on: date | None = None,
+) -> Loan | None:
+    """Run the interactive return-book screen, returning the updated loan."""
+    active_loans = service.list_loans()
+    if not active_loans:
+        print_fn("No active loans.")
+        return None
+
+    rows = loan_rows(
+        active_loans,
+        books=service.list_books(),
+        members=service.list_members(),
+        include_returned=True,
+    )
+    print_fn("Active loans:")
+    print_fn(_format_loan_table(LOAN_HEADERS, rows))
+
+    loan_id = input_fn("Loan ID: ").strip()
+    try:
+        loan = service.return_book(loan_id, returned_on=returned_on)
+    except ValueError as exc:
+        print_fn(f"Error: {exc}")
+        return None
+
+    book = next(
+        (
+            book
+            for book in service.list_books()
+            if book.id.casefold() == loan.book_id.casefold()
+        ),
+        None,
+    )
+    title = book.title if book else loan.book_id
+    if book is not None:
+        print_fn(
+            f"Returned '{title}' (loan {loan.id}). Available copies: "
+            f"{book.available_copies}/{book.total_copies}."
+        )
+    else:
+        print_fn(f"Returned loan {loan.id}.")
     return loan
