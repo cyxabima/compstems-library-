@@ -20,6 +20,8 @@ request.
 - [ ] The PO accepted the story at the Sprint Review
 
 ## Features
+- **US-01 – Add a book:** requires a title, author and a unique 10- or
+  13-digit ISBN, stores at least one copy, and adds the book to the catalogue.
 - **US-02 – List all books:** shows every book with its ID, title, author,
   ISBN, category and available/total copies, sorted by title.
 - **US-05 – Member registration validation:** requires a name and a valid
@@ -39,7 +41,8 @@ main.py             Application entry point
 library/models.py   Book domain model
 library/repository.py JSON catalogue storage
 library/service.py  Catalogue operations
-library/cli.py      Command-line book list and issue screen
+library/cli.py      Command-line screens and book list
+books.py            Book validation, adding and the add-book screen
 members.py          Member validation, registry and storage
 loans.py            Loan rules, fines, storage and loan screens
 dashboard.py        Library counts, dashboard and reset screens
@@ -70,6 +73,30 @@ B002  The Pragmatic Programmer    Andrew Hunt & David Thomas  9780201616224  Sof
 ```
 
 Use another catalogue file with `python main.py --data <path>`.
+
+## Adding a book
+```bash
+python main.py --add-book
+```
+
+The screen prompts for the title, author, ISBN, category and number of copies:
+
+```
+Title: Clean Code
+Author: Robert C. Martin
+ISBN: 978-0-13-235088-4
+Category [General]: Software Engineering
+Copies: 2
+Added 'Clean Code' (B007) with 2 copies.
+```
+
+Title, author and ISBN are required. Spaces and hyphens in the ISBN are
+removed, and the result must contain exactly 10 or 13 digits and not already be
+in the catalogue. The category defaults to `General`, at least one copy is
+required, and the new book's available count starts equal to its total copies.
+
+Blank details, a bad ISBN, a duplicate ISBN or fewer than one copy print an
+`Error:` message and leave the catalogue unchanged.
 
 ## Registering members
 Member details are validated when a `Member` is created or registered:

@@ -7,6 +7,7 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
+from books import ui_add_book
 from dashboard import ui_dashboard, ui_reset
 from loans import (
     DEFAULT_LOANS_PATH,
@@ -69,6 +70,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="book catalogue JSON file (default: data/books.json)",
     )
     parser.add_argument(
+        "--add-book",
+        action="store_true",
+        help="open the add-book screen",
+    )
+    parser.add_argument(
         "--issue",
         action="store_true",
         help="open the issue-book screen",
@@ -127,6 +133,16 @@ def _loan_service(args: argparse.Namespace) -> LoanService:
         LoanRepository(args.loans),
         MemberRepository(args.members),
     )
+
+
+def _run_add_book(args: argparse.Namespace) -> int:
+    try:
+        book = ui_add_book(BookRepository(args.data))
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+
+    return 0 if book is not None else 1
 
 
 def _run_issue_screen(args: argparse.Namespace) -> int:
@@ -199,6 +215,8 @@ def _run_reset(args: argparse.Namespace) -> int:
 def run(argv: Sequence[str] | None = None) -> int:
     """Run the command-line application and return its exit status."""
     args = build_parser().parse_args(argv)
+    if args.add_book:
+        return _run_add_book(args)
     if args.issue:
         return _run_issue_screen(args)
     if args.return_book:
