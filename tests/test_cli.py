@@ -9,7 +9,12 @@ import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
-from library.cli import EMPTY_CATALOGUE_MESSAGE, format_books, run
+from library.cli import (
+    EMPTY_CATALOGUE_MESSAGE,
+    NO_BOOKS_FOUND_MESSAGE,
+    format_books,
+    run,
+)
 from library.models import Book
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -108,6 +113,42 @@ class RunTests(unittest.TestCase):
         self.assertEqual(stderr, "")
         self.assertEqual([row[0] for row in rows], ["B001", "B002"])
 
+    def test_search_shows_only_matching_books(self) -> None:
+        self.write(
+            [
+                catalogue_entry(
+                    id="B001",
+                    title="Clean Code",
+                    author="Robert C. Martin",
+                ),
+                catalogue_entry(
+                    id="B002",
+                    title="Sapiens",
+                    author="Yuval Noah Harari",
+                ),
+            ]
+        )
+
+        status, stdout, stderr = self.capture(
+            ["--data", str(self.path), "--search", "ROBERT"]
+        )
+        rows = [line.split() for line in stdout.splitlines()[2:]]
+
+        self.assertEqual(status, 0)
+        self.assertEqual(stderr, "")
+        self.assertEqual([row[0] for row in rows], ["B001"])
+
+    def test_search_without_matches_shows_no_books_found(self) -> None:
+        self.write([catalogue_entry()])
+
+        status, stdout, stderr = self.capture(
+            ["--data", str(self.path), "--search", "astronomy"]
+        )
+
+        self.assertEqual(status, 0)
+        self.assertEqual(stdout.strip(), NO_BOOKS_FOUND_MESSAGE)
+        self.assertEqual(stderr, "")
+
     def test_reports_invalid_catalogue_without_a_traceback(self) -> None:
         self.write("{not json")
 
@@ -131,6 +172,19 @@ class MainScriptTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("Available/Total", result.stdout)
         self.assertIn("Clean Code", result.stdout)
+
+    def test_python_main_searches_the_sample_catalogue(self) -> None:
+        result = subprocess.run(
+            [sys.executable, "main.py", "--search", "history"],
+            cwd=PROJECT_ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Sapiens", result.stdout)
+        self.assertNotIn("Clean Code", result.stdout)
 
 
 if __name__ == "__main__":

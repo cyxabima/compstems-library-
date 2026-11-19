@@ -13,6 +13,7 @@ from .service import BookService
 
 HEADERS = ("ID", "Title", "Author", "ISBN", "Category", "Available/Total")
 EMPTY_CATALOGUE_MESSAGE = "No books in the catalogue."
+NO_BOOKS_FOUND_MESSAGE = "No books found"
 
 
 def format_books(books: Sequence[Book]) -> str:
@@ -56,6 +57,11 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="PATH",
         help="book catalogue JSON file (default: data/books.json)",
     )
+    parser.add_argument(
+        "--search",
+        metavar="QUERY",
+        help="search books by title, author, ISBN or category",
+    )
     return parser
 
 
@@ -65,12 +71,18 @@ def run(argv: Sequence[str] | None = None) -> int:
     service = BookService(BookRepository(args.data))
 
     try:
-        books = service.list_books()
+        if args.search is None:
+            books = service.list_books()
+        else:
+            books = service.search_books(args.search)
     except ValueError as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 1
 
-    print(format_books(books))
+    if args.search is not None and not books:
+        print(NO_BOOKS_FOUND_MESSAGE)
+    else:
+        print(format_books(books))
     return 0
 
 
