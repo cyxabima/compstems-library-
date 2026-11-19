@@ -24,6 +24,8 @@ request.
   ISBN, category and available/total copies, sorted by title.
 - **US-05 – Member registration validation:** requires a name and a valid
   email, and rejects email addresses that are already registered.
+- **US-06 – Issue a book:** lends only available copies, sets a 14-day due
+  date, limits members to three active loans, and decrements availability.
 
 ## Project structure
 ```
@@ -31,9 +33,12 @@ main.py             Application entry point
 library/models.py   Book domain model
 library/repository.py JSON catalogue storage
 library/service.py  Catalogue operations
-library/cli.py      Command-line book list
-members.py          Member validation and registry
+library/cli.py      Command-line book list and issue screen
+members.py          Member validation, registry and storage
+loans.py            Loan rules, storage and issue-book screen
 data/books.json     Sample book catalogue
+data/members.json   Sample registered members
+data/loans.json     Recorded loans
 tests/              Unit tests
 ```
 
@@ -72,6 +77,30 @@ members.register("Ada Lovelace", "ada@example.com")
 A blank name, missing/invalid email, or an email that is already registered
 raises a `ValueError` subclass (`InvalidMemberError` or `DuplicateEmailError`).
 Email comparison is case-insensitive.
+
+## Issuing a book
+```bash
+python main.py --issue
+```
+
+The screen lists only books with available copies and the registered members.
+Choose a book ID and either a member number or email:
+
+```
+Available books:
+  B001  Clean Code  (2/3)
+Members:
+  1. Ada Lovelace <ada@example.com>
+Book ID: B001
+Member number or email: 1
+Issued 'Clean Code' to Ada Lovelace. Due 2026-12-03.
+```
+
+A loan is due 14 days after issue, members can hold at most three active
+loans, and the available count drops by one. Loans are saved to
+`data/loans.json`.
+
+Use `--data`, `--members` and `--loans` to point at other JSON files.
 
 ## Running the tests
 ```bash
