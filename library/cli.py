@@ -7,6 +7,7 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
+from dashboard import ui_dashboard, ui_reset
 from loans import (
     DEFAULT_LOANS_PATH,
     LoanRepository,
@@ -94,6 +95,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="list overdue loans with days late and fines",
     )
     parser.add_argument(
+        "--dashboard",
+        action="store_true",
+        help="show library counts and overdue loans",
+    )
+    parser.add_argument(
+        "--reset",
+        action="store_true",
+        help="clear all library data after confirmation",
+    )
+    parser.add_argument(
         "--members",
         type=Path,
         default=DEFAULT_MEMBERS_PATH,
@@ -161,6 +172,30 @@ def _run_list_overdue(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_dashboard(args: argparse.Namespace) -> int:
+    try:
+        ui_dashboard(_loan_service(args))
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+
+    return 0
+
+
+def _run_reset(args: argparse.Namespace) -> int:
+    try:
+        cleared = ui_reset(
+            BookRepository(args.data),
+            LoanRepository(args.loans),
+            MemberRepository(args.members),
+        )
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+
+    return 0 if cleared else 1
+
+
 def run(argv: Sequence[str] | None = None) -> int:
     """Run the command-line application and return its exit status."""
     args = build_parser().parse_args(argv)
@@ -172,6 +207,10 @@ def run(argv: Sequence[str] | None = None) -> int:
         return _run_list_loans(args)
     if args.overdue:
         return _run_list_overdue(args)
+    if args.dashboard:
+        return _run_dashboard(args)
+    if args.reset:
+        return _run_reset(args)
 
     service = BookService(BookRepository(args.data))
 
