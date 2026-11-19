@@ -13,6 +13,7 @@ from loans import (
     LoanService,
     ui_issue_book,
     ui_list_loans,
+    ui_list_overdue,
     ui_return_book,
 )
 from members import DEFAULT_MEMBERS_PATH, MemberRepository
@@ -88,6 +89,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="include returned loans when listing loans",
     )
     parser.add_argument(
+        "--overdue",
+        action="store_true",
+        help="list overdue loans with days late and fines",
+    )
+    parser.add_argument(
         "--members",
         type=Path,
         default=DEFAULT_MEMBERS_PATH,
@@ -145,6 +151,16 @@ def _run_list_loans(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_list_overdue(args: argparse.Namespace) -> int:
+    try:
+        ui_list_overdue(_loan_service(args))
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+
+    return 0
+
+
 def run(argv: Sequence[str] | None = None) -> int:
     """Run the command-line application and return its exit status."""
     args = build_parser().parse_args(argv)
@@ -154,6 +170,8 @@ def run(argv: Sequence[str] | None = None) -> int:
         return _run_return_screen(args)
     if args.list_loans:
         return _run_list_loans(args)
+    if args.overdue:
+        return _run_list_overdue(args)
 
     service = BookService(BookRepository(args.data))
 
