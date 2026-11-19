@@ -2,7 +2,7 @@
 
 import unittest
 
-from members import InvalidMemberError, Member
+from members import DuplicateEmailError, InvalidMemberError, Member, MemberRegistry
 
 
 class MemberValidationTests(unittest.TestCase):
@@ -57,6 +57,65 @@ class MemberValidationTests(unittest.TestCase):
 
     def test_registration_errors_are_value_errors(self) -> None:
         self.assertTrue(issubclass(InvalidMemberError, ValueError))
+
+
+class MemberRegistryTests(unittest.TestCase):
+    def test_registers_a_valid_member(self) -> None:
+        registry = MemberRegistry()
+
+        member = registry.register("  Ada Lovelace  ", "  Ada@Example.COM ")
+
+        self.assertEqual(member.name, "Ada Lovelace")
+        self.assertEqual(member.email, "ada@example.com")
+        self.assertEqual(registry.list_members(), [member])
+        self.assertEqual(len(registry), 1)
+
+    def test_rejects_a_duplicate_email_address(self) -> None:
+        registry = MemberRegistry()
+        registry.register("Ada Lovelace", "ada@example.com")
+
+        with self.assertRaisesRegex(DuplicateEmailError, "already registered"):
+            registry.register("Another Member", "ada@example.com")
+
+        self.assertEqual(len(registry), 1)
+        self.assertEqual(registry.list_members()[0].name, "Ada Lovelace")
+
+    def test_duplicate_check_ignores_case_and_surrounding_whitespace(self) -> None:
+        registry = MemberRegistry()
+        registry.register("Ada Lovelace", "ada@example.com")
+
+        with self.assertRaises(DuplicateEmailError):
+            registry.register("Another Member", "  ADA@EXAMPLE.COM  ")
+
+    def test_registration_applies_name_and_email_validation(self) -> None:
+        registry = MemberRegistry()
+
+        with self.assertRaisesRegex(InvalidMemberError, "Name is required"):
+            registry.register("   ", "ada@example.com")
+
+        with self.assertRaisesRegex(InvalidMemberError, "A valid email is required"):
+            registry.register("Ada Lovelace", "not-an-email")
+
+        self.assertEqual(len(registry), 0)
+
+    def test_duplicate_emails_in_the_initial_members_are_rejected(self) -> None:
+        members = [
+            Member("Ada Lovelace", "ada@example.com"),
+            Member("Another Member", "ADA@example.com"),
+        ]
+
+        with self.assertRaises(DuplicateEmailError):
+            MemberRegistry(members)
+
+    def test_lists_members_sorted_by_name(self) -> None:
+        registry = MemberRegistry()
+        registry.register("Zoe", "zoe@example.com")
+        registry.register("ada", "ada@example.com")
+        registry.register("Grace", "grace@example.com")
+
+        names = [member.name for member in registry.list_members()]
+
+        self.assertEqual(names, ["ada", "Grace", "Zoe"])
 
 
 if __name__ == "__main__":
