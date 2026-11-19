@@ -26,6 +26,8 @@ request.
   email, and rejects email addresses that are already registered.
 - **US-06 – Issue a book:** lends only available copies, sets a 14-day due
   date, limits members to three active loans, and decrements availability.
+- **US-07 – Return a book:** returns a loan by ID, restores one available
+  copy, and lists active loans by default.
 
 ## Project structure
 ```
@@ -101,6 +103,33 @@ loans, and the available count drops by one. Loans are saved to
 `data/loans.json`.
 
 Use `--data`, `--members` and `--loans` to point at other JSON files.
+
+## Returning a book
+```bash
+python main.py --return
+```
+
+The screen lists active loans, then accepts a loan ID:
+
+```
+Active loans:
+Loan ID  Book   Member         Issued      Due         Returned
+-------  -----  -------------  ----------  ----------  --------
+L001     Alpha  Ada Lovelace   2026-11-19  2026-12-03  -
+Loan ID: L001
+Returned 'Alpha' (loan L001). Available copies: 1/2.
+```
+
+Returning a loan marks it returned and raises the available copy count by one.
+
+## Listing loans
+```bash
+python main.py --list-loans
+python main.py --list-loans --show-returned
+```
+
+Only active loans are shown by default. Add `--show-returned` to include
+returned loans.
 
 ## Running the tests
 ```bash
