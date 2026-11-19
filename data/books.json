@@ -1,0 +1,56 @@
+[
+  {
+    "id": "B001",
+    "title": "Clean Code",
+    "author": "Robert C. Martin",
+    "isbn": "9780132350884",
+    "category": "Software Engineering",
+    "total_copies": 3,
+    "available_copies": 2
+  },
+  {
+    "id": "B002",
+    "title": "The Pragmatic Programmer",
+    "author": "Andrew Hunt & David Thomas",
+    "isbn": "9780201616224",
+    "category": "Software Engineering",
+    "total_copies": 2,
+    "available_copies": 2
+  },
+  {
+    "id": "B003",
+    "title": "Introduction to Algorithms",
+    "author": "Thomas H. Cormen",
+    "isbn": "9780262046305",
+    "category": "Computer Science",
+    "total_copies": 4,
+    "available_copies": 1
+  },
+  {
+    "id": "B004",
+    "title": "Sapiens",
+    "author": "Yuval Noah Harari",
+    "isbn": "9780062316097",
+    "category": "History",
+    "total_copies": 1,
+    "available_copies": 1
+  },
+  {
+    "id": "B005",
+    "title": "The Hobbit",
+    "author": "J. R. R. Tolkien",
+    "isbn": "9780547928227",
+    "category": "Fantasy",
+    "total_copies": 2,
+    "available_copies": 0
+  },
+  {
+    "id": "B006",
+    "title": "Atomic Habits",
+    "author": "James Clear",
+    "isbn": "9780735211292",
+    "category": "Self-Help",
+    "total_copies": 3,
+    "available_copies": 2
+  }
+]
