@@ -80,6 +80,23 @@ class BookRepositoryTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "entry 1.*is invalid"):
             BookRepository(self.path).load()
 
+    def test_saved_catalogue_can_be_loaded_again(self) -> None:
+        repository = BookRepository(self.path)
+        book = Book(**book_payload())  # type: ignore[arg-type]
+
+        repository.save([book])
+
+        self.assertEqual(repository.load(), [book])
+
+    def test_save_creates_missing_directories(self) -> None:
+        path = Path(self.path.parent, "nested", "books.json")
+        book = Book(**book_payload())  # type: ignore[arg-type]
+
+        BookRepository(path).save([book])
+
+        self.assertTrue(path.exists())
+        self.assertEqual(BookRepository(path).load(), [book])
+
 
 if __name__ == "__main__":
     unittest.main()

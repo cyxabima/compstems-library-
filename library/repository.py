@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
+from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
@@ -52,3 +54,21 @@ class BookRepository:
                 ) from exc
 
         return books
+
+    def save(self, books: Sequence[Book]) -> None:
+        """Write the catalogue to disk, creating its directory if needed."""
+        payload = [asdict(book) for book in books]
+        temporary = self.path.with_name(f".{self.path.name}.tmp")
+
+        try:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            temporary.write_text(
+                json.dumps(payload, indent=2) + "\n",
+                encoding="utf-8",
+            )
+            temporary.replace(self.path)
+        except OSError as exc:
+            temporary.unlink(missing_ok=True)
+            raise ValueError(
+                f"Could not save book catalogue {self.path}: {exc}"
+            ) from exc
