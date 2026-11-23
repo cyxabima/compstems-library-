@@ -6,8 +6,8 @@ GitHub Projects.
 | --- | --- | --- |
 | Product Owner (PO) | Ukasha Anwer | @cyxabima |
 | Scrum Master (SM) | Hamdan Ahmed Siddiqui | @Hamdan-AS |
-| Developer | Hamdan Ahmed Siddiqui| @Hamdan-AS |
-| Developer |  UK  | @cyxabima |
+| Developer | SAAD ZAI | @saadzai |
+| Developer |  ABDULLAH BAIG  | @AbdullahBaig341 |
 | Stakeholder | Instructor | @Mahn00rMalik |
 ## Definition of Done
 A user story is Done only when:
